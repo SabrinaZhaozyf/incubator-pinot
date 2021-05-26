@@ -69,6 +69,20 @@ public class SelectionOnlyOperator extends BaseOperator<IntermediateResultsBlock
 
     _numRowsToKeep = queryContext.getLimit();
     _rows = new ArrayList<>(Math.min(_numRowsToKeep, SelectionOperatorUtils.MAX_ROW_HOLDER_INITIAL_CAPACITY));
+    _childOperators.add(transformOperator);
+    _explainPlanName = "SELECT";
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(selectList:");
+    if (!_expressions.isEmpty()) {
+      stringBuilder.append(_expressions.get(0));
+      for (int i = 1; i < _expressions.size(); i++) {
+        stringBuilder.append(", ").append(_expressions.get(i));
+      }
+    }
+    return stringBuilder.append(')').toString();
   }
 
   @Override

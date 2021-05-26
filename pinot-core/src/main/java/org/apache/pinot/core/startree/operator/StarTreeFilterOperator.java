@@ -82,6 +82,12 @@ import org.roaringbitmap.buffer.MutableRoaringBitmap;
  * </ul>
  */
 public class StarTreeFilterOperator extends BaseFilterOperator {
+  private static final String EXPLAIN_PLAN_NAME = "STAR_TREE_FILTER";
+
+  @Override
+  public String getExplainPlanName() {
+    return EXPLAIN_PLAN_NAME;
+  }
 
   /**
    * Helper class to wrap the information needed when traversing the star tree.

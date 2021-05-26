@@ -18,6 +18,7 @@
  */
 package org.apache.pinot.core.operator.filter;
 
+import org.apache.pinot.common.request.context.predicate.Predicate;
 import org.apache.pinot.core.operator.blocks.FilterBlock;
 import org.apache.pinot.core.operator.docidsets.BitmapDocIdSet;
 import org.apache.pinot.segment.spi.index.reader.TextIndexReader;
@@ -33,11 +34,25 @@ public class TextMatchFilterOperator extends BaseFilterOperator {
   private final TextIndexReader _textIndexReader;
   private final String _searchQuery;
   private final int _numDocs;
+  private Predicate _predicate;
 
   public TextMatchFilterOperator(TextIndexReader textIndexReader, String searchQuery, int numDocs) {
     _textIndexReader = textIndexReader;
     _searchQuery = searchQuery;
     _numDocs = numDocs;
+    _explainPlanName = "TEXT_INDEX_SCAN";
+  }
+
+  public void setPredicate(Predicate predicate) {
+    _predicate = predicate;
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(indexLookUp:text_index");
+    stringBuilder.append(",operator:").append(_predicate.getType());
+    stringBuilder.append(",predicate:").append(_predicate.toString());
+    return stringBuilder.append(')').toString();
   }
 
   @Override

@@ -18,6 +18,7 @@
  */
 package org.apache.pinot.core.operator.combine;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -36,6 +37,7 @@ import org.apache.pinot.core.query.request.context.ThreadTimer;
 import org.apache.pinot.core.query.scheduler.resources.ResourceManager;
 import org.apache.pinot.core.util.trace.TraceRunnable;
 import org.apache.pinot.spi.exception.EarlyTerminationException;
+import org.apache.zookeeper.Op;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -70,6 +72,8 @@ public abstract class BaseCombineOperator extends BaseOperator<IntermediateResul
     _endTimeMs = endTimeMs;
     _numTasks = numTasks;
     _futures = new Future[_numTasks];
+    _childOperators.add(_operators.get(0));
+    _explainPlanName = "SERVER_COMBINE";
   }
 
   protected BaseCombineOperator(List<Operator> operators, QueryContext queryContext, ExecutorService executorService,
@@ -218,4 +222,9 @@ public abstract class BaseCombineOperator extends BaseOperator<IntermediateResul
    */
   protected abstract void mergeResultsBlocks(IntermediateResultsBlock mergedBlock,
       IntermediateResultsBlock blockToMerge);
+
+  @Override
+  public List<Operator> getChildOperators() {
+    return _childOperators;
+  }
 }

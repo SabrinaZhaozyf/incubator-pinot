@@ -18,6 +18,7 @@
  */
 package org.apache.pinot.core.query.reduce;
 
+import java.util.Map;
 import org.apache.pinot.core.query.aggregation.function.AggregationFunction;
 import org.apache.pinot.core.query.aggregation.function.DistinctAggregationFunction;
 import org.apache.pinot.core.query.request.context.QueryContext;
@@ -34,6 +35,10 @@ public final class ResultReducerFactory {
    * Constructs the right result reducer based on the given query context.
    */
   public static DataTableReducer getResultReducer(QueryContext queryContext) {
+    Map<String, String> queryOptions = queryContext.getQueryOptions();
+    if (queryOptions.containsKey("explainPlan") && queryOptions.get("explainPlan").equals("true")) {
+      return new ExplainPlanDataTableReducer(queryContext);
+    }
     AggregationFunction[] aggregationFunctions = queryContext.getAggregationFunctions();
     if (aggregationFunctions == null) {
       // Selection query

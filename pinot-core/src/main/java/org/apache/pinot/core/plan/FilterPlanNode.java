@@ -173,10 +173,13 @@ public class FilterPlanNode implements PlanNode {
         } else {
           String column = lhs.getIdentifier();
           DataSource dataSource = _indexSegment.getDataSource(column);
+          BaseFilterOperator op;
           switch (predicate.getType()) {
             case TEXT_MATCH:
-              return new TextMatchFilterOperator(dataSource.getTextIndex(), ((TextMatchPredicate) predicate).getValue(),
+              op = new TextMatchFilterOperator(dataSource.getTextIndex(), ((TextMatchPredicate) predicate).getValue(),
                   _numDocs);
+              ((TextMatchFilterOperator) op).setPredicate(predicate);
+              return op;
             case REGEXP_LIKE:
               // FST Index is available only for rolled out segments. So, we use different evaluator for rolled out and
               // consuming segments.
@@ -204,18 +207,24 @@ public class FilterPlanNode implements PlanNode {
               JsonIndexReader jsonIndex = dataSource.getJsonIndex();
               Preconditions
                   .checkState(jsonIndex != null, "Cannot apply JSON_MATCH on column: %s without json index", column);
-              return new JsonMatchFilterOperator(jsonIndex, ((JsonMatchPredicate) predicate).getValue(), _numDocs);
+              op = new JsonMatchFilterOperator(jsonIndex, ((JsonMatchPredicate) predicate).getValue(), _numDocs);
+              ((JsonMatchFilterOperator) op).setPredicate(predicate);
+              return op;
             case IS_NULL:
               NullValueVectorReader nullValueVector = dataSource.getNullValueVector();
               if (nullValueVector != null) {
-                return new BitmapBasedFilterOperator(nullValueVector.getNullBitmap(), false, _numDocs);
+                op = new BitmapBasedFilterOperator(nullValueVector.getNullBitmap(), false, _numDocs);
+                ((BitmapBasedFilterOperator) op).setPredicate(predicate);
+                return op;
               } else {
                 return EmptyFilterOperator.getInstance();
               }
             case IS_NOT_NULL:
               nullValueVector = dataSource.getNullValueVector();
               if (nullValueVector != null) {
-                return new BitmapBasedFilterOperator(nullValueVector.getNullBitmap(), true, _numDocs);
+                op = new BitmapBasedFilterOperator(nullValueVector.getNullBitmap(), true, _numDocs);
+                ((BitmapBasedFilterOperator) op).setPredicate(predicate);
+                return op;
               } else {
                 return new MatchAllFilterOperator(_numDocs);
               }

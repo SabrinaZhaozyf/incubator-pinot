@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
+import javax.xml.crypto.Data;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang.StringUtils;
 import org.apache.pinot.common.exception.QueryException;
@@ -37,16 +38,21 @@ import org.apache.pinot.common.proto.Server;
 import org.apache.pinot.common.request.context.ExpressionContext;
 import org.apache.pinot.common.request.context.FilterContext;
 import org.apache.pinot.common.request.context.FunctionContext;
+import org.apache.pinot.common.utils.DataSchema;
 import org.apache.pinot.common.utils.DataTable;
 import org.apache.pinot.common.utils.DataTable.MetadataKey;
+import org.apache.pinot.core.common.Operator;
 import org.apache.pinot.core.common.datatable.DataTableBuilder;
 import org.apache.pinot.core.common.datatable.DataTableUtils;
 import org.apache.pinot.core.data.manager.InstanceDataManager;
+import org.apache.pinot.core.operator.InstanceResponseOperator;
+import org.apache.pinot.core.plan.GlobalPlanImplV0;
 import org.apache.pinot.core.plan.Plan;
 import org.apache.pinot.core.plan.maker.InstancePlanMakerImplV2;
 import org.apache.pinot.core.plan.maker.PlanMaker;
 import org.apache.pinot.core.query.aggregation.function.AggregationFunction;
 import org.apache.pinot.core.query.config.QueryExecutorConfig;
+import org.apache.pinot.core.query.explain.ExplainPlanTreeNode;
 import org.apache.pinot.core.query.pruner.SegmentPrunerService;
 import org.apache.pinot.core.query.request.ServerQueryRequest;
 import org.apache.pinot.core.query.request.context.QueryContext;
@@ -293,13 +299,70 @@ public class ServerQueryExecutorV1Impl implements QueryExecutor {
       planBuildTimer.stopAndRecord();
 
       TimerContext.Timer planExecTimer = timerContext.startNewPhaseTimer(ServerQueryPhase.QUERY_PLAN_EXECUTION);
-      DataTable dataTable = queryPlan.execute();
+      DataTable dataTable;
+      if (queryContext.getQueryOptions().containsKey("explainPlan")
+          && queryContext.getQueryOptions().get("explainPlan").equals("true")) {
+        dataTable = processExplainPlanQueries(queryPlan);
+      } else {
+        dataTable = queryPlan.execute();
+      }
       planExecTimer.stopAndRecord();
 
       // Update the total docs in the metadata based on the un-pruned segments
       dataTable.getMetadata().put(MetadataKey.TOTAL_DOCS.getName(), Long.toString(numTotalDocs));
 
       return dataTable;
+    }
+  }
+
+  public static DataTable processExplainPlanQueries(Plan queryPlan) {
+    List<String> columnNames = new ArrayList<>();
+    List<DataSchema.ColumnDataType> columnTypes = new ArrayList<>();
+    columnNames.add("Operator");
+    columnNames.add("Operator_Id");
+    columnNames.add("Parent_Id");
+    columnTypes.add(DataSchema.ColumnDataType.STRING);
+    columnTypes.add(DataSchema.ColumnDataType.INT);
+    columnTypes.add(DataSchema.ColumnDataType.INT);
+    DataSchema dataSchema =
+        new DataSchema(columnNames.toArray(new String[0]), columnTypes.toArray(new DataSchema.ColumnDataType[0]));
+    DataTableBuilder dataTableBuilder = new DataTableBuilder(dataSchema);
+    InstanceResponseOperator instanceResponseOperator = ((GlobalPlanImplV0) queryPlan).getInstanceResponsePlanNode().run();
+    Operator root = instanceResponseOperator.getChildOperators().get(0);
+    List<Object[]> resultRows = new ArrayList<>();
+    // add query rewrite nodes
+    int[] idArray = new int[1];
+    idArray[0] = 0;
+    addOperatorToTable(resultRows, root, idArray, -1);
+    for (Object[] row : resultRows) {
+      try {
+        dataTableBuilder.startRow();
+        dataTableBuilder.setColumn(0, (String) row[0]);
+        dataTableBuilder.setColumn(1, (int) row[1]);
+        dataTableBuilder.setColumn(2, (int) row[2]);
+        dataTableBuilder.finishRow();
+      } catch (Exception e) {
+        // do nothing for now
+      }
+    }
+    return dataTableBuilder.build();
+  }
+
+  public static void addOperatorToTable(List<Object[]> resultRows, Operator node, int[] globalId, int parentId) {
+    if (node == null) {
+      return;
+    }
+    if (!node.skipInExplainPlan()) {
+      Object[] resultRow = new Object[3];
+      resultRow[0] = node.getOperatorDetails();
+      resultRow[1] = globalId[0];
+      resultRow[2] = parentId;
+      resultRows.add(resultRow);
+      parentId = globalId[0];
+      globalId[0] = globalId[0] + 1;
+    }
+    for (Object child : node.getChildOperators()) {
+      addOperatorToTable(resultRows, (Operator) child, globalId, parentId);
     }
   }
 

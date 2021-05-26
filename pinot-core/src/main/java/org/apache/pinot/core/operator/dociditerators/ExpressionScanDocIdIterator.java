@@ -279,6 +279,7 @@ public final class ExpressionScanDocIdIterator implements ScanBasedDocIdIterator
         _docIdBuffer[i] = startDocId + i;
       }
       _docIdSetBlock = new DocIdSetBlock(_docIdBuffer, numDocs);
+      _explainPlanName = "RANGE_DOC_IN_SET";
     }
 
     @Override

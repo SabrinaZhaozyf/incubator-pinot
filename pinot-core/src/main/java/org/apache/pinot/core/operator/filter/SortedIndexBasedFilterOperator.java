@@ -43,6 +43,15 @@ public class SortedIndexBasedFilterOperator extends BaseFilterOperator {
     _predicateEvaluator = predicateEvaluator;
     _sortedIndexReader = (SortedIndexReader<?>) dataSource.getInvertedIndex();
     _numDocs = numDocs;
+    _explainPlanName = "SORTED_INDEX_SCAN";
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(indexLookUp:sorted_index");
+    stringBuilder.append(",operator:").append(_predicateEvaluator.getPredicateType());
+    stringBuilder.append(",predicate:").append(_predicateEvaluator.getPredicate().toString());
+    return stringBuilder.append(')').toString();
   }
 
   @Override

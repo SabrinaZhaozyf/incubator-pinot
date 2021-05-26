@@ -100,6 +100,20 @@ public class SelectionOrderByOperator extends BaseOperator<IntermediateResultsBl
     _numRowsToKeep = queryContext.getOffset() + queryContext.getLimit();
     _rows = new PriorityQueue<>(Math.min(_numRowsToKeep, SelectionOperatorUtils.MAX_ROW_HOLDER_INITIAL_CAPACITY),
         getComparator());
+    _childOperators.add(transformOperator);
+    _explainPlanName = "SELECT_ORDERBY";
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(selectList:");
+    if (!_expressions.isEmpty()) {
+      stringBuilder.append(_expressions.get(0));
+      for (int i = 1; i < _expressions.size(); i++) {
+        stringBuilder.append(", ").append(_expressions.get(i));
+      }
+    }
+    return stringBuilder.append(')').toString();
   }
 
   private Comparator<Object[]> getComparator() {

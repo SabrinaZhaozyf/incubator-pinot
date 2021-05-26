@@ -50,6 +50,7 @@ public class MetadataBasedAggregationOperator extends BaseOperator<IntermediateR
     // Datasource is currently not used, but will start getting used as we add support for aggregation
     // functions other than count(*).
     _dataSourceMap = dataSourceMap;
+    _explainPlanName = "METADATA_BASED_AGGREGATE";
   }
 
   @Override

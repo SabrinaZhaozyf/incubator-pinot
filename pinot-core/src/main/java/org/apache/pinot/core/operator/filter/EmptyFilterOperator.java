@@ -27,6 +27,7 @@ import org.apache.pinot.core.operator.blocks.FilterBlock;
  */
 public final class EmptyFilterOperator extends BaseFilterOperator {
   private EmptyFilterOperator() {
+    _explainPlanName = "EMPTY_FILTER";
   }
 
   private static final String OPERATOR_NAME = "EmptyFilterOperator";

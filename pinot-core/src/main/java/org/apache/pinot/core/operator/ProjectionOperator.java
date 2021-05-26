@@ -39,6 +39,8 @@ public class ProjectionOperator extends BaseOperator<ProjectionBlock> {
     _dataSourceMap = dataSourceMap;
     _docIdSetOperator = docIdSetOperator;
     _dataBlockCache = new DataBlockCache(new DataFetcher(dataSourceMap));
+    _childOperators.add(docIdSetOperator);
+    _explainPlanName = "PROJECT";
   }
 
   /**
@@ -66,6 +68,26 @@ public class ProjectionOperator extends BaseOperator<ProjectionBlock> {
   @Override
   public String getOperatorName() {
     return OPERATOR_NAME;
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append('(');
+    if (_dataSourceMap.keySet().isEmpty()) {
+      // count aggregation function has empty input expressions
+      stringBuilder.append("ALL");
+    } else {
+      int count = 0;
+      for (String col : _dataSourceMap.keySet()) {
+        if (count == _dataSourceMap.keySet().size() - 1) {
+          stringBuilder.append(col);
+        } else {
+          stringBuilder.append(col).append(", ");
+        }
+        count++;
+      }
+    }
+    return stringBuilder.append(')').toString();
   }
 
   @Override

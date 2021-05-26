@@ -47,6 +47,15 @@ public class RangeIndexBasedFilterOperator extends BaseFilterOperator {
     _rangePredicateEvaluator = rangePredicateEvaluator;
     _dataSource = dataSource;
     _numDocs = numDocs;
+    _explainPlanName = "RANGE_INDEX_SCAN";
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(indexLookUp:range_index");
+    stringBuilder.append(",operator:").append(_rangePredicateEvaluator.getPredicateType());
+    stringBuilder.append(",predicate:").append(_rangePredicateEvaluator.getPredicate().toString());
+    return stringBuilder.append(')').toString();
   }
 
   @Override

@@ -32,6 +32,8 @@ public class InstanceResponseOperator extends BaseOperator<InstanceResponseBlock
 
   public InstanceResponseOperator(Operator combinedOperator) {
     _operator = combinedOperator;
+    _childOperators.add(combinedOperator);
+    _explainPlanName = "INSTANCE_RESPONSE";
   }
 
   @Override

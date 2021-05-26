@@ -51,6 +51,8 @@ public class DistinctOperator extends BaseOperator<IntermediateResultsBlock> {
     _distinctAggregationFunction = distinctAggregationFunction;
     _transformOperator = transformOperator;
     _distinctExecutor = DistinctExecutorFactory.getDistinctExecutor(distinctAggregationFunction, transformOperator);
+    _childOperators.add(transformOperator);
+    _explainPlanName = "DISTINCT";
   }
 
   @Override
@@ -80,5 +82,18 @@ public class DistinctOperator extends BaseOperator<IntermediateResultsBlock> {
     int numTotalDocs = _indexSegment.getSegmentMetadata().getTotalDocs();
     return new ExecutionStatistics(_numDocsScanned, numEntriesScannedInFilter, numEntriesScannedPostFilter,
         numTotalDocs);
+  }
+
+  @Override
+  public String getOperatorDetails() {
+   String[] keys = _distinctAggregationFunction.getColumns();
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(keyColumns:");
+    if (keys.length > 0) {
+      stringBuilder.append(keys[0]);
+      for (int i = 1; i < keys.length; i++) {
+        stringBuilder.append(", ").append(keys[i]);
+      }
+    }
+    return stringBuilder.append(')').toString();
   }
 }

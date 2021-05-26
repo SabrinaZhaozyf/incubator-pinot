@@ -46,7 +46,6 @@ import org.roaringbitmap.buffer.MutableRoaringBitmap;
  */
 public class H3IndexFilterOperator extends BaseFilterOperator {
   private static final String OPERATOR_NAME = "H3IndexFilterOperator";
-
   private final IndexSegment _segment;
   private final Predicate _predicate;
   private final int _numDocs;
@@ -87,6 +86,15 @@ public class H3IndexFilterOperator extends BaseFilterOperator {
     } else {
       _upperBound = Double.NaN;
     }
+    _explainPlanName = "H3_INDEX_FILTER";
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(indexLookUp:h3_index");
+    stringBuilder.append(",operator:").append(_predicate.getType());
+    stringBuilder.append(",predicate:").append(_predicate.toString());
+    return stringBuilder.append(')').toString();
   }
 
   @Override

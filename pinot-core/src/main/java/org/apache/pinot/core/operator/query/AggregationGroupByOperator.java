@@ -18,7 +18,11 @@
  */
 package org.apache.pinot.core.operator.query;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.pinot.common.request.context.ExpressionContext;
+import org.apache.pinot.common.request.context.FunctionContext;
+import org.apache.pinot.core.common.Operator;
 import org.apache.pinot.core.operator.BaseOperator;
 import org.apache.pinot.core.operator.ExecutionStatistics;
 import org.apache.pinot.core.operator.blocks.IntermediateResultsBlock;
@@ -58,6 +62,8 @@ public class AggregationGroupByOperator extends BaseOperator<IntermediateResults
     _transformOperator = transformOperator;
     _numTotalDocs = numTotalDocs;
     _useStarTree = useStarTree;
+    _childOperators.add(transformOperator);
+    _explainPlanName = "AGGREGATE_GROUPBY";
   }
 
   @Override
@@ -94,5 +100,25 @@ public class AggregationGroupByOperator extends BaseOperator<IntermediateResults
     long numEntriesScannedPostFilter = (long) _numDocsScanned * _transformOperator.getNumColumnsProjected();
     return new ExecutionStatistics(_numDocsScanned, numEntriesScannedInFilter, numEntriesScannedPostFilter,
         _numTotalDocs);
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(groupKeys:");
+    for (int i = 0; i < _groupByExpressions.length; i++) {
+      stringBuilder.append(_groupByExpressions[i].toString()).append(',');
+    }
+
+    stringBuilder.append("aggregations:");
+    int count = 0;
+    for (AggregationFunction func : _aggregationFunctions) {
+      if (count == _aggregationFunctions.length - 1) {
+        stringBuilder.append(func.toString());
+      } else {
+        stringBuilder.append(func.toString()).append(", ");
+      }
+      count++;
+    }
+    return stringBuilder.append(')').toString();
   }
 }

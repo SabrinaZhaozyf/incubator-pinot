@@ -18,6 +18,7 @@
  */
 package org.apache.pinot.core.operator.filter;
 
+import org.apache.pinot.common.request.context.predicate.Predicate;
 import org.apache.pinot.core.operator.blocks.EmptyFilterBlock;
 import org.apache.pinot.core.operator.blocks.FilterBlock;
 import org.apache.pinot.core.operator.docidsets.BitmapDocIdSet;
@@ -37,6 +38,7 @@ public class BitmapBasedFilterOperator extends BaseFilterOperator {
   private final ImmutableRoaringBitmap _docIds;
   private final boolean _exclusive;
   private final int _numDocs;
+  private Predicate _predicate;
 
   BitmapBasedFilterOperator(PredicateEvaluator predicateEvaluator, DataSource dataSource, int numDocs) {
     _predicateEvaluator = predicateEvaluator;
@@ -44,6 +46,8 @@ public class BitmapBasedFilterOperator extends BaseFilterOperator {
     _docIds = null;
     _exclusive = predicateEvaluator.isExclusive();
     _numDocs = numDocs;
+    _explainPlanName = "BITMAP_BASED_FILTER";
+    _predicate = predicateEvaluator.getPredicate();
   }
 
   public BitmapBasedFilterOperator(ImmutableRoaringBitmap docIds, boolean exclusive, int numDocs) {
@@ -52,6 +56,19 @@ public class BitmapBasedFilterOperator extends BaseFilterOperator {
     _docIds = docIds;
     _exclusive = exclusive;
     _numDocs = numDocs;
+    _explainPlanName = "BITMAP_BASED_FILTER";
+  }
+
+  public void setPredicate(Predicate predicate) {
+    _predicate = predicate;
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(indexLookUp:inverted_index");
+    stringBuilder.append(",operator:").append(_predicate.getType());
+    stringBuilder.append(",predicate:").append(_predicate.toString());
+    return stringBuilder.append(')').toString();
   }
 
   @Override

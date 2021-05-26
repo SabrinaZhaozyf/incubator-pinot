@@ -20,6 +20,7 @@ package org.apache.pinot.core.operator.filter;
 
 import java.util.ArrayList;
 import java.util.List;
+import org.apache.pinot.core.common.Operator;
 import org.apache.pinot.core.operator.blocks.FilterBlock;
 import org.apache.pinot.core.operator.docidsets.FilterBlockDocIdSet;
 import org.apache.pinot.core.operator.docidsets.OrDocIdSet;
@@ -27,13 +28,16 @@ import org.apache.pinot.core.operator.docidsets.OrDocIdSet;
 
 public class OrFilterOperator extends BaseFilterOperator {
   private static final String OPERATOR_NAME = "OrFilterOperator";
-
   private final List<BaseFilterOperator> _filterOperators;
   private final int _numDocs;
 
   public OrFilterOperator(List<BaseFilterOperator> filterOperators, int numDocs) {
     _filterOperators = filterOperators;
     _numDocs = numDocs;
+    for (Operator op: filterOperators) {
+      _childOperators.add(op);
+    }
+    _explainPlanName = "FILTER(operator: OR)";
   }
 
   @Override

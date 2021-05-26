@@ -24,11 +24,11 @@ import org.apache.pinot.core.operator.docidsets.MatchAllDocIdSet;
 
 public class MatchAllFilterOperator extends BaseFilterOperator {
   private static final String OPERATOR_NAME = "MatchEntireSegmentOperator";
-
   private final int _numDocs;
 
   public MatchAllFilterOperator(int numDocs) {
     _numDocs = numDocs;
+    _explainPlanName = "FULL_SCAN";
   }
 
   @Override

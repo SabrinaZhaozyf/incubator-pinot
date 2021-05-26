@@ -18,6 +18,8 @@
  */
 package org.apache.pinot.core.operator;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.pinot.core.common.Block;
 import org.apache.pinot.core.common.Operator;
 import org.apache.pinot.core.util.trace.TraceContext;
@@ -31,6 +33,9 @@ import org.slf4j.LoggerFactory;
  */
 public abstract class BaseOperator<T extends Block> implements Operator<T> {
   private static final Logger LOGGER = LoggerFactory.getLogger(BaseOperator.class);
+  // child operators used in EXPLAIN PLAN
+  protected List<Operator> _childOperators = new ArrayList<>();
+  protected String _explainPlanName = "EXPLAIN_OPERATOR";
 
   @Override
   public final T nextBlock() {
@@ -56,6 +61,23 @@ public abstract class BaseOperator<T extends Block> implements Operator<T> {
   // Enforcing sub-class to implement the getOperatorName(), as they can just return a static final,
   // as opposed to this super class calling getClass().getSimpleName().
   public abstract String getOperatorName();
+
+  public String getExplainPlanName() {
+    return _explainPlanName;
+  }
+
+  @Override
+  public boolean skipInExplainPlan() {
+    return false;
+  }
+
+  @Override
+  public List<Operator> getChildOperators() { return _childOperators;}
+
+  @Override
+  public String getOperatorDetails() {
+    return getExplainPlanName();
+  }
 
   @Override
   public ExecutionStatistics getExecutionStatistics() {

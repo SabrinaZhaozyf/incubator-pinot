@@ -56,6 +56,8 @@ public class EmptySelectionOperator extends BaseOperator<IntermediateResultsBloc
     _dataSchema = new DataSchema(columnNames, columnDataTypes);
 
     _executionStatistics = new ExecutionStatistics(0L, 0L, 0L, indexSegment.getSegmentMetadata().getTotalDocs());
+    _childOperators.add(transformOperator);
+    _explainPlanName = "EMPTY_SELECT";
   }
 
   @Override

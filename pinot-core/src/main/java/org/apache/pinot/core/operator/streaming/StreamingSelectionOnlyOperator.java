@@ -67,6 +67,8 @@ public class StreamingSelectionOnlyOperator extends BaseOperator<IntermediateRes
     _dataSchema = new DataSchema(columnNames, columnDataTypes);
 
     _limit = queryContext.getLimit();
+    _childOperators.add(transformOperator);
+    _explainPlanName = "STREAMING_SELECT";
   }
 
   @Nullable

@@ -20,7 +20,9 @@ package org.apache.pinot.core.operator.transform;
 
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import org.apache.pinot.common.request.context.ExpressionContext;
 import org.apache.pinot.core.operator.BaseOperator;
 import org.apache.pinot.core.operator.ExecutionStatistics;
@@ -43,6 +45,8 @@ public class TransformOperator extends BaseOperator<TransformBlock> {
   protected final Map<String, DataSource> _dataSourceMap;
   protected final Map<ExpressionContext, TransformFunction> _transformFunctionMap = new HashMap<>();
 
+  private Set<ExpressionContext> _explainTransformFunctions = new HashSet<>();
+
   /**
    * Constructor for the class
    *
@@ -55,7 +59,43 @@ public class TransformOperator extends BaseOperator<TransformBlock> {
     for (ExpressionContext expression : expressions) {
       TransformFunction transformFunction = TransformFunctionFactory.get(expression, _dataSourceMap);
       _transformFunctionMap.put(expression, transformFunction);
+      if (expression.getType() == ExpressionContext.Type.FUNCTION) {
+        _explainTransformFunctions.add(expression);
+      }
     }
+    _childOperators.add(projectionOperator);
+    _explainPlanName = "APPLY_TRANSFORM";
+  }
+
+  /**
+   * Constructor for the class, only used as a child operator of Filter operators for EXPLAIN PLAN output
+   */
+  public TransformOperator(ExpressionContext expression) {
+    _explainTransformFunctions.add(expression);
+    _explainPlanName = "APPLY_TRANSFORM";
+    _projectionOperator = null;
+    _dataSourceMap = null;
+  }
+
+
+  @Override
+  public boolean skipInExplainPlan() {
+    return _explainTransformFunctions.isEmpty();
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(transformFuncs:");
+    int count = 0;
+    for (ExpressionContext func : _explainTransformFunctions) {
+      if (count == _explainTransformFunctions.size() - 1) {
+        stringBuilder.append(func.toString());
+      } else {
+        stringBuilder.append(func.toString()).append(", ");
+      }
+      count++;
+    }
+    return stringBuilder.append(')').toString();
   }
 
   /**

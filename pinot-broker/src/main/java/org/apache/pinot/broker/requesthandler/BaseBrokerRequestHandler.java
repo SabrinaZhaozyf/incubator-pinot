@@ -77,6 +77,8 @@ import org.apache.pinot.common.utils.request.RequestUtils;
 import org.apache.pinot.core.query.aggregation.function.AggregationFunctionUtils;
 import org.apache.pinot.core.query.optimizer.QueryOptimizer;
 import org.apache.pinot.core.query.reduce.BrokerReduceService;
+import org.apache.pinot.core.query.request.context.QueryContext;
+import org.apache.pinot.core.query.request.context.utils.BrokerRequestToQueryContextConverter;
 import org.apache.pinot.core.requesthandler.PinotQueryParserFactory;
 import org.apache.pinot.core.transport.ServerInstance;
 import org.apache.pinot.core.util.QueryOptions;
@@ -222,7 +224,14 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
     if (isLiteralOnlyQuery(pinotQuery)) {
       LOGGER.debug("Request {} contains only Literal, skipping server query: {}", requestId, query);
       try {
-        return processLiteralOnlyQuery(pinotQuery, compilationStartTimeNs, requestStatistics);
+        BrokerResponseNative responseForLiteralOnly =
+            processLiteralOnlyQuery(pinotQuery, compilationStartTimeNs, requestStatistics);
+        if (isExplainPlanQuery(pinotQuery)) {
+          // update result table to be the query plan
+          _brokerReduceService.
+              reduceExplainPlanLiteralOnly(pinotQuery, responseForLiteralOnly);
+        }
+        return responseForLiteralOnly;
       } catch (Exception e) {
         // TODO: refine the exceptions here to early termination the queries won't requires to send to servers.
         LOGGER
@@ -472,9 +481,21 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
       _brokerMetrics.addMeteredTableValue(rawTableName, BrokerMeter.REQUEST_TIMEOUT_BEFORE_SCATTERED_EXCEPTIONS, 1);
       return new BrokerResponseNative(QueryException.getException(QueryException.BROKER_TIMEOUT_ERROR, errorMessage));
     }
-
     // Execute the query
     ServerStats serverStats = new ServerStats();
+    if (isExplainPlanQuery(brokerRequest.getPinotQuery())) {
+      // update routing tables to only send request to 1 server (& generate the plan for 1 segment)
+      if (offlineRoutingTable != null) {
+        setRoutingToOneServer(offlineRoutingTable);
+        // no need to send to realtime servers
+        realtimeBrokerRequest = null;
+        realtimeRoutingTable = null;
+      }
+
+      if (realtimeRoutingTable != null) {
+        setRoutingToOneServer(realtimeRoutingTable);
+      }
+    }
     BrokerResponseNative brokerResponse =
         processBrokerRequest(requestId, brokerRequest, offlineBrokerRequest, offlineRoutingTable, realtimeBrokerRequest,
             realtimeRoutingTable, remainingTimeMs, serverStats, requestStatistics);
@@ -495,6 +516,47 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
 
     logBrokerResponse(requestId, query, requestStatistics, brokerRequest, numUnavailableSegments, serverStats,
         brokerResponse, totalTimeMs);
+    return brokerResponse;
+  }
+
+  private void setRoutingToOneServer(Map<ServerInstance, List<String>> routingTable) {
+    Set<Map.Entry<ServerInstance, List<String>>> servers = routingTable.entrySet();
+    // only send request to 1 server
+    Map.Entry<ServerInstance, List<String>> server = servers.iterator().next();
+    routingTable.clear();
+    List<String> segments = new ArrayList<>();
+    // only generate the plan for 1 segment
+    segments.add(server.getValue().get(0));
+    routingTable.put(server.getKey(), segments);
+  }
+
+  private BrokerResponseNative processExplainPlanQuery
+      (BrokerRequest brokerRequest, BrokerRequest offlineBrokerRequest, BrokerRequest realtimeBrokerRequest,
+          String offlineTableName, String realtimeTableName) {
+      QueryContext queryContext = BrokerRequestToQueryContextConverter.convert(brokerRequest);
+      TableConfig tableConfig;
+      if (offlineBrokerRequest != null && realtimeBrokerRequest != null) {
+        // for now, if hybrid, use realtime table config
+        tableConfig = _tableCache.
+            getTableConfig(TableNameBuilder.REALTIME.tableNameWithType(realtimeTableName));
+      } else if (offlineBrokerRequest != null) {
+        // only offline segments
+        tableConfig = _tableCache.
+            getTableConfig(TableNameBuilder.OFFLINE.tableNameWithType(offlineTableName));
+      } else {
+        // only consuming segments
+        tableConfig = _tableCache.
+            getTableConfig(TableNameBuilder.REALTIME.tableNameWithType(realtimeTableName));
+      }
+      // TODO: Add the following auxiliary information to the BrokerResponse metadata for EXPLAIN PLAN query output
+      //- Number of segments pruned by partition segment pruner on broker. -1 if partitioning not configured. 0 or more if partitioning is configured
+      //- Number of segments pruned by time column segment pruner on broker. -1 if time column pruning not configured. 0 or more if pruning configured
+      BrokerResponseNative brokerResponse;
+      if (nonTabularFormat(brokerRequest.getPinotQuery())) {
+        brokerResponse = _brokerReduceService.reduceExplainPlanQueryOutputNontabular(queryContext, tableConfig);
+      } else {
+        brokerResponse = _brokerReduceService.reduceExplainPlanQueryOutput(queryContext, tableConfig);
+      }
     return brokerResponse;
   }
 
@@ -548,6 +610,21 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
       // Increment the count for dropped log
       _numDroppedLog.incrementAndGet();
     }
+  }
+
+  private int getNumSegmentsQueried(Map<ServerInstance, List<String>> offlineRoutingTable, Map<ServerInstance, List<String>> realtimeRoutingTable) {
+    int totalNumSegs = 0;
+    if (offlineRoutingTable != null) {
+      for (List<String> seg : offlineRoutingTable.values()) {
+        totalNumSegs += seg.size();
+      }
+    }
+    if (realtimeRoutingTable != null) {
+      for (List<String> seg : realtimeRoutingTable.values()) {
+        totalNumSegs += seg.size();
+      }
+    }
+    return totalNumSegs;
   }
 
   private String getServerTenant(String tableNameWithType) {
@@ -1436,6 +1513,24 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
 
     // If response time is more than 1 sec, force the log
     return totalTimeMs > 1000L;
+  }
+
+  /**
+   * Checks if the PinotQuery is EXPLAIN PLAN query
+   */
+  private boolean isExplainPlanQuery (PinotQuery pinotQuery) {
+    Map<String, String> queryOptions = pinotQuery.getQueryOptions();
+    return pinotQuery.isSetQueryOptions() && queryOptions.containsKey("explainPlan")
+        && queryOptions.get("explainPlan").equals("true");
+  }
+
+  /**
+   * Checks if configured to display non_tabular plan tree for EXPLAIN PLAN query
+   */
+  private boolean nonTabularFormat(PinotQuery pinotQuery) {
+    Map<String, String> queryOptions = pinotQuery.getQueryOptions();
+    return pinotQuery.isSetQueryOptions() && queryOptions.containsKey("explainPlanOutputFormat")
+        && queryOptions.get("explainPlanOutputFormat").equals("nonTabular");
   }
 
   /**

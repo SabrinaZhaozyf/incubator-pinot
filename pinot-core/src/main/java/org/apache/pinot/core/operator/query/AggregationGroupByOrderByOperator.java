@@ -18,9 +18,12 @@
  */
 package org.apache.pinot.core.operator.query;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import org.apache.pinot.common.request.context.ExpressionContext;
+import org.apache.pinot.common.request.context.FunctionContext;
 import org.apache.pinot.common.utils.DataSchema;
 import org.apache.pinot.core.data.table.IntermediateRecord;
 import org.apache.pinot.core.data.table.TableResizer;
@@ -75,6 +78,8 @@ public class AggregationGroupByOrderByOperator extends BaseOperator<Intermediate
     _queryContext = queryContext;
     _minSegmentTrimSize = minSegmentTrimSize;
 
+    _childOperators.add(transformOperator);
+
     // NOTE: The indexedTable expects that the the data schema will have group by columns before aggregation columns
     int numGroupByExpressions = groupByExpressions.length;
     int numAggregationFunctions = aggregationFunctions.length;
@@ -99,6 +104,7 @@ public class AggregationGroupByOrderByOperator extends BaseOperator<Intermediate
     }
 
     _dataSchema = new DataSchema(columnNames, columnDataTypes);
+    _explainPlanName = "AGGREGATE_GROUPBY_ORDERBY";
   }
 
   @Override
@@ -167,5 +173,25 @@ public class AggregationGroupByOrderByOperator extends BaseOperator<Intermediate
       return GroupByUtils.DEFAULT_MIN_NUM_GROUPS;
     }
     return _minSegmentTrimSize;
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(groupKeys:");
+    for (int i = 0; i < _groupByExpressions.length; i++) {
+      stringBuilder.append(_groupByExpressions[i].toString()).append(',');
+    }
+
+    stringBuilder.append("aggregations:");
+    int count = 0;
+    for (AggregationFunction func : _aggregationFunctions) {
+      if (count == _aggregationFunctions.length - 1) {
+        stringBuilder.append(func.toString());
+      } else {
+        stringBuilder.append(func.toString()).append(", ");
+      }
+      count++;
+    }
+    return stringBuilder.append(')').toString();
   }
 }

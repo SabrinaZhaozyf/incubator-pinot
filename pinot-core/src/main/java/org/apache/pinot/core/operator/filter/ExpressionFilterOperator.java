@@ -28,6 +28,7 @@ import org.apache.pinot.core.operator.blocks.FilterBlock;
 import org.apache.pinot.core.operator.docidsets.ExpressionFilterDocIdSet;
 import org.apache.pinot.core.operator.filter.predicate.PredicateEvaluator;
 import org.apache.pinot.core.operator.filter.predicate.PredicateEvaluatorProvider;
+import org.apache.pinot.core.operator.transform.TransformOperator;
 import org.apache.pinot.core.operator.transform.function.TransformFunction;
 import org.apache.pinot.core.operator.transform.function.TransformFunctionFactory;
 import org.apache.pinot.segment.spi.IndexSegment;
@@ -57,6 +58,15 @@ public class ExpressionFilterOperator extends BaseFilterOperator {
     _predicateEvaluator = PredicateEvaluatorProvider
         .getPredicateEvaluator(predicate, _transformFunction.getDictionary(),
             _transformFunction.getResultMetadata().getDataType());
+    _explainPlanName = "FULL_SCAN";
+    _childOperators.add(new TransformOperator(lhs));
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(operator:").append(_predicateEvaluator.getPredicateType());
+    stringBuilder.append(",predicate:").append(_predicateEvaluator.getPredicate().toString());
+    return stringBuilder.append(')').toString();
   }
 
   @Override

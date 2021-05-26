@@ -59,6 +59,7 @@ public class DictionaryBasedAggregationOperator extends BaseOperator<Intermediat
     _aggregationFunctions = aggregationFunctions;
     _dictionaryMap = dictionaryMap;
     _numTotalDocs = numTotalDocs;
+    _explainPlanName = "DICTIONARY_BASED_AGGREGATE";
   }
 
   @Override

@@ -19,8 +19,11 @@
 package org.apache.pinot.core.plan;
 
 import org.apache.pinot.common.utils.DataTable;
+import org.apache.pinot.core.common.Operator;
+import org.apache.pinot.core.operator.BaseOperator;
 import org.apache.pinot.core.operator.InstanceResponseOperator;
 import org.apache.pinot.core.operator.blocks.InstanceResponseBlock;
+import org.apache.pinot.core.query.explain.ExplainPlanTreeNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,10 +42,35 @@ public class GlobalPlanImplV0 implements Plan {
     _instanceResponsePlanNode = instanceResponsePlanNode;
   }
 
+  /** Builds a plan tree with node being the root.
+   * Note that this function is only used for regular operators (not query rewrite) */
+  private void buildPlan(Operator node, int indentation, StringBuilder sb) {
+    if (node == null) {
+      return;
+    }
+    if (!node.skipInExplainPlan()) {
+      for (int i=0; i < indentation; i++){
+        sb.append(" ");
+      }
+      sb.append(node.getOperatorDetails()).append("\n");
+    }
+    for (Object child : node.getChildOperators()) {
+      buildPlan((Operator) child, indentation + 4, sb);
+    }
+  }
+
+  public InstanceResponsePlanNode getInstanceResponsePlanNode() {
+    return _instanceResponsePlanNode;
+  }
+
   @Override
   public DataTable execute() {
     long startTime = System.currentTimeMillis();
     InstanceResponseOperator instanceResponseOperator = _instanceResponsePlanNode.run();
+    Operator root = instanceResponseOperator.getChildOperators().get(0);
+    StringBuilder sb = new StringBuilder();
+    buildPlan(root, 0, sb);
+    System.out.println(sb.toString());
     long endTime1 = System.currentTimeMillis();
     LOGGER.debug("InstanceResponsePlanNode.run() took: {}ms", endTime1 - startTime);
     InstanceResponseBlock instanceResponseBlock = instanceResponseOperator.nextBlock();

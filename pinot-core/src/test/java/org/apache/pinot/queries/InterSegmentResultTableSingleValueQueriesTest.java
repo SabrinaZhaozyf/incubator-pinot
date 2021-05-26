@@ -991,8 +991,8 @@ public class InterSegmentResultTableSingleValueQueriesTest extends BaseSingleVal
   @Test
   public void testSelection() {
     // select *
-    String query = "SELECT * FROM testTable";
-    BrokerResponseNative brokerResponse = getBrokerResponseForPqlQuery(query);
+    String query = "EXPLAIN PLAN FOR SELECT * FROM testTable";
+    BrokerResponseNative brokerResponse = getBrokerResponseForSqlQuery(query);
     SelectionResults selectionResults = brokerResponse.getSelectionResults();
     query = "SELECT * FROM testTable option(responseFormat=sql)";
     BrokerResponseNative brokerResponseSQL = getBrokerResponseForPqlQuery(query);

@@ -16,37 +16,10 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.pinot.core.operator.filter.predicate;
 
-import org.apache.pinot.common.request.context.predicate.Predicate;
+package org.apache.pinot.core.query.explain;
 
+public interface ExplainPlanTreeNode {
 
-public abstract class BasePredicateEvaluator implements PredicateEvaluator {
-
-  protected Predicate _predicate;
-
-  @Override
-  public final boolean isExclusive() {
-    return getPredicateType().isExclusive();
-  }
-
-  @Override
-  public int getNumMatchingDictIds() {
-    return getMatchingDictIds().length;
-  }
-
-  @Override
-  public int getNumNonMatchingDictIds() {
-    return getNonMatchingDictIds().length;
-  }
-
-  @Override
-  public void setPredicate(Predicate predicate) {
-    _predicate = predicate;
-  }
-
-  @Override
-  public Predicate getPredicate() {
-    return _predicate;
-  }
+  ExplainPlanTreeNode[] getChildNodes();
 }

@@ -37,6 +37,14 @@ public class ScanBasedFilterOperator extends BaseFilterOperator {
     _predicateEvaluator = predicateEvaluator;
     _dataSource = dataSource;
     _numDocs = numDocs;
+    _explainPlanName = "FULL_SCAN";
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(operator:").append(_predicateEvaluator.getPredicateType());
+    stringBuilder.append(",predicate:").append(_predicateEvaluator.getPredicate().toString());
+    return stringBuilder.append(')').toString();
   }
 
   @Override

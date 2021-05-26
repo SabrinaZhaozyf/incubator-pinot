@@ -18,6 +18,7 @@
  */
 package org.apache.pinot.core.operator.filter;
 
+import org.apache.pinot.common.request.context.predicate.Predicate;
 import org.apache.pinot.core.operator.blocks.FilterBlock;
 import org.apache.pinot.core.operator.docidsets.BitmapDocIdSet;
 import org.apache.pinot.segment.spi.index.reader.JsonIndexReader;
@@ -32,11 +33,25 @@ public class JsonMatchFilterOperator extends BaseFilterOperator {
   private final JsonIndexReader _jsonIndex;
   private final String _filterString;
   private final int _numDocs;
+  private Predicate _predicate;
 
   public JsonMatchFilterOperator(JsonIndexReader jsonIndex, String filterString, int numDocs) {
     _jsonIndex = jsonIndex;
     _filterString = filterString;
     _numDocs = numDocs;
+    _explainPlanName = "JSON_INDEX_FILTER";
+  }
+
+  public void setPredicate(Predicate predicate) {
+    _predicate = predicate;
+  }
+
+  @Override
+  public String getOperatorDetails() {
+    StringBuilder stringBuilder = new StringBuilder(_explainPlanName).append("(indexLookUp:json_index");
+    stringBuilder.append(",operator:").append(_predicate.getType());
+    stringBuilder.append(",predicate:").append(_predicate.toString());
+    return stringBuilder.append(')').toString();
   }
 
   @Override

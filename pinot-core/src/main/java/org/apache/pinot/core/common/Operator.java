@@ -18,6 +18,7 @@
  */
 package org.apache.pinot.core.common;
 
+import java.util.List;
 import org.apache.pinot.core.operator.ExecutionStatistics;
 import org.apache.pinot.spi.exception.EarlyTerminationException;
 
@@ -37,4 +38,10 @@ public interface Operator<T extends Block> {
   T nextBlock();
 
   ExecutionStatistics getExecutionStatistics();
+
+  List<Operator> getChildOperators();
+
+  String getOperatorDetails();
+
+  boolean skipInExplainPlan();
 }
