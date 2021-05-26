@@ -18,6 +18,7 @@
  */
 package org.apache.pinot.core.query.request.context.utils;
 
+import java.util.List;
 import org.apache.pinot.core.query.request.context.QueryContext;
 import org.apache.pinot.pql.parsers.Pql2Compiler;
 import org.apache.pinot.sql.parsers.CalciteSqlCompiler;

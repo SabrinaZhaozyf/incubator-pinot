@@ -22,11 +22,16 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlNumericLiteral;
 import org.apache.calcite.sql.parser.SqlParseException;
+import org.apache.commons.collections.map.HashedMap;
 import org.apache.pinot.common.request.AggregationInfo;
 import org.apache.pinot.common.request.BrokerRequest;
 import org.apache.pinot.common.request.Expression;
@@ -1630,6 +1635,12 @@ public class CalciteSqlCompilerTest {
         pinotQuery.getOrderByList().get(0).getFunctionCall().getOperands().get(0).getIdentifier().getName(), "foo");
     Assert.assertEquals(
         pinotQuery.getOrderByList().get(1).getFunctionCall().getOperands().get(0).getIdentifier().getName(), "bar");
+    Map<String, String> queryOptions = pinotQuery.getQueryOptions();
+    Assert.assertTrue(queryOptions != null);
+    Assert.assertTrue(queryOptions.containsKey(CalciteSqlParser.QUERY_REWRITE));
+    Assert.assertTrue(queryOptions.containsKey(CalciteSqlParser.APPLY_ORDINALS));
+    Assert.assertEquals(queryOptions.get(CalciteSqlParser.QUERY_REWRITE), "true");
+    Assert.assertEquals(queryOptions.get(CalciteSqlParser.APPLY_ORDINALS), "[1->foo, 2->bar]");
 
     query = "SELECT foo, bar, count(*) FROM t GROUP BY 2, 1 ORDER BY 2, 1 DESC";
     pinotQuery = CalciteSqlParser.compileToPinotQuery(query);
@@ -1641,6 +1652,12 @@ public class CalciteSqlCompilerTest {
         pinotQuery.getOrderByList().get(0).getFunctionCall().getOperands().get(0).getIdentifier().getName(), "bar");
     Assert.assertEquals(
         pinotQuery.getOrderByList().get(1).getFunctionCall().getOperands().get(0).getIdentifier().getName(), "foo");
+    queryOptions = pinotQuery.getQueryOptions();
+    Assert.assertTrue(queryOptions != null);
+    Assert.assertTrue(queryOptions.containsKey(CalciteSqlParser.QUERY_REWRITE));
+    Assert.assertTrue(queryOptions.containsKey(CalciteSqlParser.APPLY_ORDINALS));
+    Assert.assertEquals(queryOptions.get(CalciteSqlParser.QUERY_REWRITE), "true");
+    Assert.assertEquals(queryOptions.get(CalciteSqlParser.APPLY_ORDINALS), "[1->foo, 2->bar]");
 
     query = "SELECT foo as f, bar as b, count(*) FROM t GROUP BY 2, 1 ORDER BY 2, 1 DESC";
     pinotQuery = CalciteSqlParser.compileToPinotQuery(query);
@@ -1650,6 +1667,13 @@ public class CalciteSqlCompilerTest {
         pinotQuery.getOrderByList().get(0).getFunctionCall().getOperands().get(0).getIdentifier().getName(), "bar");
     Assert.assertEquals(
         pinotQuery.getOrderByList().get(1).getFunctionCall().getOperands().get(0).getIdentifier().getName(), "foo");
+    queryOptions = pinotQuery.getQueryOptions();
+    Assert.assertTrue(queryOptions != null);
+    Assert.assertTrue(queryOptions.containsKey(CalciteSqlParser.QUERY_REWRITE));
+    Assert.assertTrue(queryOptions.containsKey(CalciteSqlParser.APPLY_ORDINALS));
+    Assert.assertTrue(!queryOptions.containsKey(CalciteSqlParser.APPLY_ALIAS));
+    Assert.assertEquals(queryOptions.get(CalciteSqlParser.QUERY_REWRITE), "true");
+    Assert.assertEquals(queryOptions.get(CalciteSqlParser.APPLY_ORDINALS), "[1->foo, 2->bar]");
 
     query = "select a, b + 2, array_sum(c) as array_sum_c, count(*) from data group by a, 2, array_sum_c";
     pinotQuery = CalciteSqlParser.compileToPinotQuery(query);
@@ -1662,6 +1686,14 @@ public class CalciteSqlCompilerTest {
     Assert.assertEquals(pinotQuery.getGroupByList().get(2).getFunctionCall().getOperator(), "ARRAY_SUM");
     Assert.assertEquals(
         pinotQuery.getGroupByList().get(2).getFunctionCall().getOperands().get(0).getIdentifier().getName(), "c");
+    queryOptions = pinotQuery.getQueryOptions();
+    Assert.assertTrue(queryOptions != null);
+    Assert.assertTrue(queryOptions.containsKey(CalciteSqlParser.QUERY_REWRITE));
+    Assert.assertTrue(queryOptions.containsKey(CalciteSqlParser.APPLY_ORDINALS));
+    Assert.assertTrue(queryOptions.containsKey(CalciteSqlParser.APPLY_ALIAS));
+    Assert.assertEquals(queryOptions.get(CalciteSqlParser.QUERY_REWRITE), "true");
+    Assert.assertEquals(queryOptions.get(CalciteSqlParser.APPLY_ORDINALS), "[2->plus(b,2)]");
+    Assert.assertEquals(queryOptions.get(CalciteSqlParser.APPLY_ALIAS), "[array_sum_c->array_sum(c)]");
 
     Assert.expectThrows(SqlCompilationException.class,
         () -> CalciteSqlParser.compileToPinotQuery("SELECT foo, bar, count(*) FROM t GROUP BY 0"));
@@ -1756,10 +1788,12 @@ public class CalciteSqlCompilerTest {
 
   @Test
   public void testCompileTimeExpression() {
+    Map<String, Set<String>> options = new HashMap<>();
+    options.put(CalciteSqlParser.INVOKE_COMPILATION_TIME_FUNCTIONS, new HashSet<>());
     long lowerBound = System.currentTimeMillis();
     Expression expression = CalciteSqlParser.compileToExpression("now()");
     Assert.assertNotNull(expression.getFunctionCall());
-    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression);
+    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression, options);
     Assert.assertNotNull(expression.getLiteral());
     long upperBound = System.currentTimeMillis();
     long result = expression.getLiteral().getLongValue();
@@ -1768,7 +1802,7 @@ public class CalciteSqlCompilerTest {
     lowerBound = TimeUnit.MILLISECONDS.toHours(System.currentTimeMillis()) + 1;
     expression = CalciteSqlParser.compileToExpression("to_epoch_hours(now() + 3600000)");
     Assert.assertNotNull(expression.getFunctionCall());
-    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression);
+    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression, options);
     Assert.assertNotNull(expression.getLiteral());
     upperBound = TimeUnit.MILLISECONDS.toHours(System.currentTimeMillis()) + 1;
     result = expression.getLiteral().getLongValue();
@@ -1777,7 +1811,7 @@ public class CalciteSqlCompilerTest {
     lowerBound = System.currentTimeMillis() - ONE_HOUR_IN_MS;
     expression = CalciteSqlParser.compileToExpression("ago('PT1H')");
     Assert.assertNotNull(expression.getFunctionCall());
-    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression);
+    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression, options);
     Assert.assertNotNull(expression.getLiteral());
     upperBound = System.currentTimeMillis() - ONE_HOUR_IN_MS;
     result = expression.getLiteral().getLongValue();
@@ -1786,7 +1820,7 @@ public class CalciteSqlCompilerTest {
     lowerBound = System.currentTimeMillis() + ONE_HOUR_IN_MS;
     expression = CalciteSqlParser.compileToExpression("ago('PT-1H')");
     Assert.assertNotNull(expression.getFunctionCall());
-    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression);
+    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression, options);
     Assert.assertNotNull(expression.getLiteral());
     upperBound = System.currentTimeMillis() + ONE_HOUR_IN_MS;
     result = expression.getLiteral().getLongValue();
@@ -1794,7 +1828,7 @@ public class CalciteSqlCompilerTest {
 
     expression = CalciteSqlParser.compileToExpression("toDateTime(millisSinceEpoch)");
     Assert.assertNotNull(expression.getFunctionCall());
-    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression);
+    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression, options);
     Assert.assertNotNull(expression.getFunctionCall());
     Assert.assertEquals(expression.getFunctionCall().getOperator(), "TODATETIME");
     Assert
@@ -1802,26 +1836,26 @@ public class CalciteSqlCompilerTest {
 
     expression = CalciteSqlParser.compileToExpression("reverse(playerName)");
     Assert.assertNotNull(expression.getFunctionCall());
-    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression);
+    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression, options);
     Assert.assertNotNull(expression.getFunctionCall());
     Assert.assertEquals(expression.getFunctionCall().getOperator(), "REVERSE");
     Assert.assertEquals(expression.getFunctionCall().getOperands().get(0).getIdentifier().getName(), "playerName");
 
     expression = CalciteSqlParser.compileToExpression("reverse('playerName')");
     Assert.assertNotNull(expression.getFunctionCall());
-    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression);
+    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression, options);
     Assert.assertNotNull(expression.getLiteral());
     Assert.assertEquals(expression.getLiteral().getFieldValue(), "emaNreyalp");
 
     expression = CalciteSqlParser.compileToExpression("reverse(123)");
     Assert.assertNotNull(expression.getFunctionCall());
-    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression);
+    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression, options);
     Assert.assertNotNull(expression.getLiteral());
     Assert.assertEquals(expression.getLiteral().getFieldValue(), "321");
 
     expression = CalciteSqlParser.compileToExpression("count(*)");
     Assert.assertNotNull(expression.getFunctionCall());
-    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression);
+    expression = CalciteSqlParser.invokeCompileTimeFunctionExpression(expression, options);
     Assert.assertNotNull(expression.getFunctionCall());
     Assert.assertEquals(expression.getFunctionCall().getOperator(), "COUNT");
     Assert.assertEquals(expression.getFunctionCall().getOperands().get(0).getIdentifier().getName(), "*");
@@ -2327,5 +2361,67 @@ public class CalciteSqlCompilerTest {
   private void testSupportedDistinctQuery(String query) {
     PinotQuery pinotQuery = CalciteSqlParser.compileToPinotQuery(query);
     Assert.assertNotNull(pinotQuery);
+  }
+
+  /**
+   * This test checks EXPLAIN PLAN FOR syntax compiles correctly.
+   * Specifically, the PinotQuery created from EXPLAIN PLAN FOR SQL_QUERY should be the same as
+   * the one created from only the SQL_QUERY with an extra option <"explainPlan", "true">.
+   */
+  @Test
+  public void testExplainQueryCompilation() {
+    String sql;
+    String sqlWithExplain;
+    PinotQuery pinotQuery;
+    PinotQuery pinotQueryWithExplain;
+
+    sql = "SELECT * FROM FOO";
+    sqlWithExplain = "EXPLAIN PLAN FOR " + sql;
+    // PinotQuery returned by the parser should be the same as if without EXPLAIN PLAN
+    pinotQuery = CalciteSqlParser.compileToPinotQuery(sql);
+    pinotQueryWithExplain = CalciteSqlParser.compileToPinotQuery(sqlWithExplain);
+    isPinotQueryEqual(pinotQueryWithExplain, pinotQuery);
+    // Test additional field <"execute", "false"> in query options
+    Assert.assertEquals(pinotQuery.getQueryOptionsSize(), 1);
+    Assert.assertTrue(pinotQuery.getQueryOptions().containsKey("explainPlan"));
+    Assert.assertEquals(pinotQuery.getQueryOptions().get("explainPlan"), "true");
+
+    sql = "SELECT * FROM FOO OPTION (foo=1234)";
+    sqlWithExplain = "EXPLAIN PLAN FOR " + sql;
+    pinotQuery = CalciteSqlParser.compileToPinotQuery(sql);
+    pinotQueryWithExplain = CalciteSqlParser.compileToPinotQuery(sqlWithExplain);
+    isPinotQueryEqual(pinotQueryWithExplain, pinotQuery);
+    Assert.assertEquals(pinotQuery.getQueryOptionsSize(), 2);
+    Assert.assertTrue(pinotQuery.getQueryOptions().containsKey("explainPlan"));
+    Assert.assertTrue(pinotQuery.getQueryOptions().containsKey("foo"));
+    Assert.assertEquals(pinotQuery.getQueryOptions().get("explainPlan"), "true");
+    Assert.assertEquals(pinotQuery.getQueryOptions().get("foo"), "1234");
+
+    sql = "SELECT col1, col2 FROM FOO WHERE a = 1.5 AND b = 1 ORDER BY col1 DESC LIMIT 200";
+    sqlWithExplain = "EXPLAIN PLAN FOR " + sql;
+    pinotQuery = CalciteSqlParser.compileToPinotQuery(sql);
+    pinotQueryWithExplain = CalciteSqlParser.compileToPinotQuery(sqlWithExplain);
+    isPinotQueryEqual(pinotQueryWithExplain, pinotQuery);
+    Assert.assertEquals(pinotQuery.getQueryOptionsSize(), 1);
+    Assert.assertTrue(pinotQuery.getQueryOptions().containsKey("explainPlan"));
+    Assert.assertEquals(pinotQuery.getQueryOptions().get("explainPlan"), "true");
+
+    sql = "SELECT col1, DATETIMECONVERT(col2), sum(col3) as col3_sum, count(*), distinctCount(col4) "
+        + "FROM FOO WHERE col5 in (1, 2, 3) "
+        + "GROUP BY col1, DATETIMECONVERT(col2) "
+        + "HAVING sum(col3) > 100 "
+        + "ORDER BY col1 DESC LIMIT 100";
+    sqlWithExplain = "EXPLAIN PLAN FOR " + sql;
+    pinotQuery = CalciteSqlParser.compileToPinotQuery(sql);
+    pinotQueryWithExplain = CalciteSqlParser.compileToPinotQuery(sqlWithExplain);
+    isPinotQueryEqual(pinotQueryWithExplain, pinotQuery);
+    Assert.assertEquals(pinotQuery.getQueryOptionsSize(), 1);
+    Assert.assertTrue(pinotQuery.getQueryOptions().containsKey("explainPlan"));
+    Assert.assertEquals(pinotQuery.getQueryOptions().get("explainPlan"), "true");
+  }
+
+  private void isPinotQueryEqual(PinotQuery withExplain, PinotQuery withoutExplain) {
+    withoutExplain.putToQueryOptions("explainPlan", "true");
+    Assert.assertEquals(withExplain, withoutExplain);
   }
 }

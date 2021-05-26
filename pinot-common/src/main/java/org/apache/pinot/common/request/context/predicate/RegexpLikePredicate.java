@@ -66,7 +66,5 @@ public class RegexpLikePredicate implements Predicate {
   }
 
   @Override
-  public String toString() {
-    return "regexp_like(" + _lhs + ",'" + _value + "')";
-  }
+  public String toString() { return "regexp_like(" + _lhs + ",'" + _value + "')"; }
 }

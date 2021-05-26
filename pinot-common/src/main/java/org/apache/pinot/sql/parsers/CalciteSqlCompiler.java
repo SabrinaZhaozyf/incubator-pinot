@@ -18,6 +18,8 @@
  */
 package org.apache.pinot.sql.parsers;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.pinot.common.request.BrokerRequest;
 import org.apache.pinot.common.request.DataSource;
 import org.apache.pinot.common.request.PinotQuery;

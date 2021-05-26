@@ -47,6 +47,7 @@ import org.apache.pinot.broker.broker.AccessControlFactory;
 import org.apache.pinot.broker.queryquota.QueryQuotaManager;
 import org.apache.pinot.broker.routing.RoutingManager;
 import org.apache.pinot.broker.routing.RoutingTable;
+import org.apache.pinot.broker.routing.segmentpruner.PartitionSegmentPruner;
 import org.apache.pinot.broker.routing.timeboundary.TimeBoundaryInfo;
 import org.apache.pinot.common.exception.QueryException;
 import org.apache.pinot.common.function.TransformFunctionType;
@@ -74,9 +75,14 @@ import org.apache.pinot.common.response.broker.ResultTable;
 import org.apache.pinot.common.utils.DataSchema;
 import org.apache.pinot.common.utils.helix.TableCache;
 import org.apache.pinot.common.utils.request.RequestUtils;
+import org.apache.pinot.core.plan.PlanNode;
 import org.apache.pinot.core.query.aggregation.function.AggregationFunctionUtils;
+import org.apache.pinot.core.query.explain.ExplainPlanTreeNode;
+import org.apache.pinot.core.query.explain.SelectNode;
 import org.apache.pinot.core.query.optimizer.QueryOptimizer;
 import org.apache.pinot.core.query.reduce.BrokerReduceService;
+import org.apache.pinot.core.query.request.context.QueryContext;
+import org.apache.pinot.core.query.request.context.utils.BrokerRequestToQueryContextConverter;
 import org.apache.pinot.core.requesthandler.PinotQueryParserFactory;
 import org.apache.pinot.core.transport.ServerInstance;
 import org.apache.pinot.core.util.QueryOptions;
@@ -222,7 +228,14 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
     if (isLiteralOnlyQuery(pinotQuery)) {
       LOGGER.debug("Request {} contains only Literal, skipping server query: {}", requestId, query);
       try {
-        return processLiteralOnlyQuery(pinotQuery, compilationStartTimeNs, requestStatistics);
+        BrokerResponseNative responseForLiteralOnly =
+            processLiteralOnlyQuery(pinotQuery, compilationStartTimeNs, requestStatistics);
+        if (isExplainPlanQuery(pinotQuery)) {
+          // update result table to be the query plan
+          _brokerReduceService.
+              reduceExplainPlanLiteralOnly(pinotQuery, responseForLiteralOnly);
+        }
+        return responseForLiteralOnly;
       } catch (Exception e) {
         // TODO: refine the exceptions here to early termination the queries won't requires to send to servers.
         LOGGER
@@ -232,6 +245,7 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
     }
 
     try {
+      // TODO: corner case
       handleSubquery(pinotQuery, requestId, request, requesterIdentity, requestStatistics);
     } catch (Exception e) {
       LOGGER
@@ -342,6 +356,7 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
     BrokerRequest offlineBrokerRequest = null;
     BrokerRequest realtimeBrokerRequest = null;
     Schema schema = _tableCache.getSchema(rawTableName);
+    // TODO: corner case - filter optimizer?
     if (offlineTableName != null && realtimeTableName != null) {
       // Hybrid
       offlineBrokerRequest = getOfflineBrokerRequest(brokerRequest);
@@ -384,6 +399,7 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
 
     if (offlineBrokerRequest == null && realtimeBrokerRequest == null) {
       // Send empty response since we don't need to evaluate either offline or realtime request.
+      // TODO: corner case - no evaluation needed
       BrokerResponseNative brokerResponse = BrokerResponseNative.empty();
       logBrokerResponse(requestId, query, requestStatistics, brokerRequest, 0, new ServerStats(), brokerResponse,
           System.nanoTime());
@@ -473,6 +489,45 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
       return new BrokerResponseNative(QueryException.getException(QueryException.BROKER_TIMEOUT_ERROR, errorMessage));
     }
 
+    // brokerRequest fully cooked up for execution
+    if (isExplainPlanQuery(brokerRequest.getPinotQuery())) {
+      // currently does not handle profiling
+      // TODO: add profiling
+      QueryContext queryContext = BrokerRequestToQueryContextConverter.convert(brokerRequest);
+      TableConfig tableConfig;
+      if (offlineBrokerRequest != null && realtimeBrokerRequest != null) {
+        // TODO: distinguish between offline vs realtime segments for table config
+        // for now, if hybrid, use realtime table config
+        tableConfig = _tableCache.
+            getTableConfig(TableNameBuilder.REALTIME.tableNameWithType(realtimeTableName));
+      } else if (offlineBrokerRequest != null) {
+        // only offline segments
+        tableConfig = _tableCache.
+            getTableConfig(TableNameBuilder.OFFLINE.tableNameWithType(offlineTableName));
+      } else {
+        // only consuming segments
+        tableConfig = _tableCache.
+            getTableConfig(TableNameBuilder.REALTIME.tableNameWithType(realtimeTableName));
+      }
+      // TODO: Add the following auxiliary information to the BrokerResponse metadata, discuss if we want to change routing code
+      //- Number of segments pruned by partition segment pruner on broker. -1 if partitioning not configured. 0 or more if partitioning is configured
+      //- Number of segments pruned by time column segment pruner on broker. -1 if time column pruning not configured. 0 or more if pruning configured
+      BrokerResponseNative brokerResponse;
+      if (nonTabularFormat(pinotQuery)) {
+        brokerResponse = _brokerReduceService.reduceExplainPlanQueryOutputNontabular(queryContext, tableConfig);
+      } else {
+        brokerResponse = _brokerReduceService.reduceExplainPlanQueryOutput(queryContext, tableConfig);
+      }
+      long executionEndTimeNs = System.nanoTime();
+      _brokerMetrics.addPhaseTiming(rawTableName, BrokerQueryPhase.QUERY_EXECUTION, executionEndTimeNs - routingEndTimeNs);
+      long totalTimeMs = TimeUnit.NANOSECONDS.toMillis(executionEndTimeNs - compilationStartTimeNs);
+      brokerResponse.setTimeUsedMs(totalTimeMs);
+      brokerResponse.setNumSegmentsQueried(getNumSegmentsQueried(offlineRoutingTable, realtimeRoutingTable));
+      requestStatistics.setQueryProcessingTime(totalTimeMs);
+      requestStatistics.setStatistics(brokerResponse);
+      return brokerResponse;
+    }
+
     // Execute the query
     ServerStats serverStats = new ServerStats();
     BrokerResponseNative brokerResponse =
@@ -548,6 +603,21 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
       // Increment the count for dropped log
       _numDroppedLog.incrementAndGet();
     }
+  }
+
+  private int getNumSegmentsQueried(Map<ServerInstance, List<String>> offlineRoutingTable, Map<ServerInstance, List<String>> realtimeRoutingTable) {
+    int totalNumSegs = 0;
+    if (offlineRoutingTable != null) {
+      for (List<String> seg : offlineRoutingTable.values()) {
+        totalNumSegs += seg.size();
+      }
+    }
+    if (realtimeRoutingTable != null) {
+      for (List<String> seg : realtimeRoutingTable.values()) {
+        totalNumSegs += seg.size();
+      }
+    }
+    return totalNumSegs;
   }
 
   private String getServerTenant(String tableNameWithType) {
@@ -1436,6 +1506,33 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
 
     // If response time is more than 1 sec, force the log
     return totalTimeMs > 1000L;
+  }
+
+  /**
+   * Checks if the PinotQuery is EXPLAIN PLAN query
+   */
+  private boolean isExplainPlanQuery (PinotQuery pinotQuery) {
+    Map<String, String> queryOptions = pinotQuery.getQueryOptions();
+    return pinotQuery.isSetQueryOptions() && queryOptions.containsKey("explainPlan")
+        && queryOptions.get("explainPlan").equals("true");
+  }
+
+  /**
+   * Checks if configured to display non_tabular plan tree for EXPLAIN PLAN query
+   */
+  private boolean nonTabularFormat(PinotQuery pinotQuery) {
+    Map<String, String> queryOptions = pinotQuery.getQueryOptions();
+    return pinotQuery.isSetQueryOptions() && queryOptions.containsKey("explainPlanOutputFormat")
+        && queryOptions.get("explainPlanOutputFormat").equals("nonTabular");
+  }
+
+  /**
+   * Checks if profiling is turned on
+   */
+  private boolean isProfilingOn (PinotQuery pinotQuery) {
+    Map<String, String> queryOptions = pinotQuery.getQueryOptions();
+    return pinotQuery.isSetQueryOptions() && queryOptions.containsKey("profiling")
+        && queryOptions.get("profiling").equals("on");
   }
 
   /**

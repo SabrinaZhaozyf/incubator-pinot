@@ -106,7 +106,12 @@ public class ExpressionContext {
   public String toString() {
     switch (_type) {
       case LITERAL:
-        return '\'' + _value + '\'';
+        try {
+          Double.parseDouble(_value);
+        } catch (NumberFormatException e) {
+          return '\'' + _value + '\'';
+        }
+        return _value;
       case IDENTIFIER:
         return _value;
       case FUNCTION:
