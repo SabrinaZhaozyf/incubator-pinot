@@ -19,8 +19,14 @@
 
 package org.apache.pinot.core.query.explain;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import org.apache.pinot.common.request.context.ExpressionContext;
+import org.apache.pinot.common.request.context.FunctionContext;
+import org.apache.pinot.core.query.aggregation.function.AggregationFunction;
+import org.apache.pinot.core.query.aggregation.function.DistinctAggregationFunction;
 import org.apache.pinot.core.query.request.context.QueryContext;
 import org.apache.pinot.core.query.request.context.utils.QueryContextUtils;
 import org.apache.pinot.spi.config.table.TableConfig;
@@ -39,6 +45,10 @@ public class BrokerReduceNode implements ExplainPlanTreeNode{
     _havingFilter = queryContext.getHavingFilter() != null ? queryContext.getHavingFilter().toString() : null;
     _sort = queryContext.getOrderByExpressions() != null ? queryContext.getOrderByExpressions().toString() : null;
     _limit = queryContext.getLimit();
+    if (QueryContextUtils.isAggregationQuery(queryContext)) {
+      // queries with 1 or more aggregation only functions always returns at most 1 row
+      _limit = 1;
+    }
     Set<String> regularTransforms = new HashSet<>();
     QueryContextUtils.generateTransforms(queryContext, _postAggregations, regularTransforms);
     _childNodes[0] = new ServerCombineNode(queryContext, regularTransforms, tableConfig);

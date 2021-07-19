@@ -46,12 +46,24 @@ public class SelectNode implements ExplainPlanTreeNode {
     List<String> originalCols = new ArrayList<>();
     List<String> aliasCols = new ArrayList<>();
     for (int i = 0; i < selectExpressions.size(); i++) {
+      ExpressionContext selectExpression = selectExpressions.get(i);
       if (aliasList.get(i) != null) {
         _selectList.add(aliasList.get(i));
-        originalCols.add(selectExpressions.get(i).toString());
+        // TODO: ask how distinct works with alias
+        originalCols.add(selectExpression.toString());
         aliasCols.add(aliasList.get(i));
       } else {
-        _selectList.add(selectExpressions.get(i).toString());
+        if (selectExpression.getType() == ExpressionContext.Type.FUNCTION
+            && selectExpression.getFunction().getFunctionName().equals("distinct")) {
+          // because distinct is an aggregation function, here we need to extract its arguments(columns)
+          List<ExpressionContext> distinctArgs = selectExpression.getFunction().getArguments();
+          for (int j = 0; j < distinctArgs.size(); j++) {
+            _selectList.add(distinctArgs.get(j).toString());
+          }
+        } else {
+          _selectList.add(selectExpressions.get(i).toString());
+        }
+
       }
     }
     assert (originalCols.size() == aliasCols.size());
