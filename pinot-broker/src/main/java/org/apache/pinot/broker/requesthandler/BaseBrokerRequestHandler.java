@@ -21,6 +21,7 @@ package org.apache.pinot.broker.requesthandler;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,6 +31,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -308,6 +311,7 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
     }
 
     try {
+      // rewrite to stack pinotquery objects
       handleSubquery(serverPinotQuery, requestId, request, requesterIdentity, requestContext);
     } catch (Exception e) {
       LOGGER.info("Caught exception while handling the subquery in request {}: {}, {}", requestId, query,
@@ -520,7 +524,7 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
     }
 
     if (offlineBrokerRequest == null && realtimeBrokerRequest == null) {
-      if (pinotQuery.isExplain()) {
+      if (serverPinotQuery.isExplain()) {
         // EXPLAIN PLAN results to show that query is evaluated exclusively by Broker.
         return BrokerResponseNative.BROKER_ONLY_EXPLAIN_PLAN_OUTPUT;
       }
@@ -631,7 +635,80 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
       return new BrokerResponseNative(exceptions);
     }
 
+    if (Boolean.parseBoolean(pinotQuery.getQueryOptions().get("pagination"))) {
+//      String tableName = TableNameBuilder.extractRawTableName(pinotQuery.getDataSource().getTableName());
+      // Step 1: Generate a pointer.
+      // TODO: a. add a method to generate a ID
+      //       b. replace the dummyInstanceId with a real one.
+      int hash = ("dummyInstanceId" + requestId + System.currentTimeMillis()).hashCode();
+      String pointer = tableName + "_" + hash;
+
+      // Step 2: TODO invoke pagination query initialization API.
+
+      // Step 3: Submit to query executor.
+      // TODO: use an pool based executor as the 2nd parameter below.
+      Map<ServerInstance, List<String>> finalOfflineRoutingTable = offlineRoutingTable;
+      Map<ServerInstance, List<String>> finalRealtimeRoutingTable = realtimeRoutingTable;
+      BrokerRequest finalOfflineBrokerRequest = offlineBrokerRequest;
+      BrokerRequest finalRealtimeBrokerRequest = realtimeBrokerRequest;
+      long finalRemainingTimeMs = remainingTimeMs;
+      int finalNumPrunedSegmentsTotal = numPrunedSegmentsTotal;
+      CompletableFuture.supplyAsync(() -> {
+        try {
+          return handleRequest(requestId, query, serverPinotQuery, brokerRequest, serverBrokerRequest,
+              compilationStartTimeNs, tableName, rawTableName, requesterIdentity, requestContext,
+              finalOfflineRoutingTable, finalRealtimeRoutingTable, finalOfflineBrokerRequest,
+              finalRealtimeBrokerRequest, routingEndTimeNs, finalRemainingTimeMs, exceptions,
+              finalNumPrunedSegmentsTotal, numUnavailableSegments);
+        } catch (Exception e) {
+          throw new CompletionException(e);
+        }
+      }).thenApply(brokerResponseNative -> {
+        // Step 5: TODO invoke upload result API.
+        try {
+          System.out.println("Async query execution response: " + brokerResponseNative.toJsonString());
+          return null;
+        } catch (IOException e) {
+          throw new CompletionException(e);
+        }
+      }).exceptionally(exception -> {
+        // Step 6: TODO Handle exception.
+        System.out.println(exception);
+        return null;
+      });
+
+      // Step 4: TODO Put pointer only to the response and return.
+      BrokerResponseNative brokerResponseNative = new BrokerResponseNative();
+
+      DataSchema dataSchema =
+          new DataSchema(new String[]{"pointer"}, new DataSchema.ColumnDataType[]{DataSchema.ColumnDataType.STRING});
+      Object[] objects = new Object[]{pointer};
+      List<Object[]> rows = new ArrayList<>();
+      rows.add(objects);
+      ResultTable resultTable = new ResultTable(dataSchema, rows);
+      brokerResponseNative.setResultTable(resultTable);
+      System.out.println("Submission response: " + brokerResponseNative.toJsonString());
+      return brokerResponseNative;
+    }
+
+    return handleRequest(requestId, query, serverPinotQuery, brokerRequest, serverBrokerRequest, compilationStartTimeNs,
+        tableName, rawTableName, requesterIdentity, requestContext, offlineRoutingTable,
+        realtimeRoutingTable, offlineBrokerRequest, realtimeBrokerRequest, routingEndTimeNs,
+        remainingTimeMs, exceptions, numPrunedSegmentsTotal, numUnavailableSegments);
+  }
+
+  // Exclude query compilation + authorization.
+  private BrokerResponseNative handleRequest(long requestId, String query, PinotQuery serverPinotQuery,
+      BrokerRequest brokerRequest, BrokerRequest serverBrokerRequest, long compilationStartTimeNs, String tableName,
+      String rawTableName, @Nullable RequesterIdentity requesterIdentity, RequestContext requestContext,
+      Map<ServerInstance, List<String>> offlineRoutingTable, Map<ServerInstance, List<String>> realtimeRoutingTable,
+      BrokerRequest offlineBrokerRequest,
+      BrokerRequest realtimeBrokerRequest, long routingEndTimeNs, long remainingTimeMs,
+      List<ProcessingException> exceptions, int numPrunedSegmentsTotal, int numUnavailableSegments)
+      throws Exception {
+
     // Execute the query
+    // tasks for subquery
     // TODO: Replace ServerStats with ServerRoutingStatsEntry.
     ServerStats serverStats = new ServerStats();
     // TODO: Handle broker specific operations for explain plan queries such as:
@@ -639,7 +716,7 @@ public abstract class BaseBrokerRequestHandler implements BrokerRequestHandler {
     //       - Compile time function invocation
     //       - Literal only queries
     //       - Any rewrites
-    if (pinotQuery.isExplain()) {
+    if (serverPinotQuery.isExplain()) {
       // Update routing tables to only send request to offline servers for OFFLINE and HYBRID tables.
       // TODO: Assess if the Explain Plan Query should also be routed to REALTIME servers for HYBRID tables
       if (offlineRoutingTable != null) {
