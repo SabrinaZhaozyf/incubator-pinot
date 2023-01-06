@@ -293,6 +293,10 @@ public class CommonConstants {
         public static final String AND_SCAN_REORDERING = "AndScanReordering";
 
         public static final String ORDER_BY_ALGORITHM = "orderByAlgorithm";
+        public static final String PAGINATION = "pagination";
+        public static final String OFFSET = "offset";
+        public static final String FETCH = "fetch";
+        public static final String POINTER_ID = "pointerId";
 
         // TODO: Remove these keys (only apply to PQL) after releasing 0.11.0
         @Deprecated

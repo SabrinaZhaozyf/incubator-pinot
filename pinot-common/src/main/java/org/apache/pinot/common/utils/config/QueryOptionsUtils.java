@@ -162,4 +162,22 @@ public class QueryOptionsUtils {
   public static String getOrderByAlgorithm(Map<String, String> queryOptions) {
     return queryOptions.get(QueryOptionKey.ORDER_BY_ALGORITHM);
   }
+
+  public static boolean getPagination(Map<String, String> queryOptions) {
+    return Boolean.parseBoolean(queryOptions.get(QueryOptionKey.PAGINATION));
+  }
+
+  public static Integer getOffset(Map<String, String> queryOptions) {
+    String offset = queryOptions.get(QueryOptionKey.OFFSET);
+    return Integer.parseInt(offset);
+  }
+
+  public static Integer getFetch(Map<String, String> queryOptions) {
+    String fetch = queryOptions.get(QueryOptionKey.FETCH);
+    return Integer.parseInt(fetch);
+  }
+
+  public static String getPointerId(Map<String, String> queryOptions) {
+    return queryOptions.get(QueryOptionKey.POINTER_ID);
+  }
 }
